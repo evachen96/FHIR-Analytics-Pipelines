@@ -547,7 +547,7 @@ catch {
 try{
     $sqlFiles = Get-ChildItem $SqlScriptCollectionPath -Filter "*.sql" -Name 
     $defaultSchemaTypes = $sqlFiles | ForEach-Object {$($_ -split "\.")[0]}
-    New-PlaceHolderBlobs -storage $StorageName -container $Container -resultPath $ResultPath -schemaTypes $defaultSchemaTypes
+    # New-PlaceHolderBlobs -storage $StorageName -container $Container -resultPath $ResultPath -schemaTypes $defaultSchemaTypes
 }
 catch
 {
@@ -573,12 +573,14 @@ try{
         -resultPath $ResultPath
 
     # d). Create TABLEs and VIEWs on Synapse.
+    <#
     New-TableAndViewsForResources `
         -serviceEndpoint $synapseSqlServerEndpoint `
         -databaseName $Database `
         -masterKey $MasterKey `
         -storage $StorageName `
         -container $Container
+    #>
 }
 catch{
     Write-Host "Create TABLEs and VIEWs for default schema data failed, will try to drop database '$Database'." -ForegroundColor Red
