@@ -58,7 +58,7 @@ $Tags = @{
 
 $JobName = "FhirSynapseJob"
 $PlaceHolderName = ".readme.txt"
-$CustomizedTemplateDirectory = "CustomizedSchema"
+$CustomizedTemplateDirectory = "CustomizedSchema_" + (-join ((65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_}))
 
 $OrasDirectoryPath = "Oras"
 $OrasAppPath = "oras.exe"
@@ -369,6 +369,8 @@ function Get-CustomizedSchemaImage {
     $orasParameters = @(
         'pull'
         $schemaImageReference
+        '-o'
+        'quwantest'
     )
     
     Execute_File -fileName "./$orasAppPath" -argumentList $orasParameters
@@ -606,7 +608,7 @@ if ($CustomizedSchemaImage) {
             -schemaImageReference $CustomizedSchemaImage `
             -customizedTemplateDirectory $CustomizedTemplateDirectory
 
-        $customizedSchemaDirectory = Join-Path -Path $CustomizedTemplateDirectory -ChildPath "Schema"
+        $customizedSchemaDirectory = Join-Path -Path $CustomizedTemplateDirectory -ChildPath "Template" | Join-Path -ChildPath "Schema"
         
         # c). Create placeholder blobs for customized schema data.
         $sqlFiles = Get-ChildItem $customizedSchemaDirectory -Filter "*.schema.json" -Name 
