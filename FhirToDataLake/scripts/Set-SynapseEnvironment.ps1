@@ -58,11 +58,11 @@ $Tags = @{
 
 $JobName = "FhirSynapseJob"
 $PlaceHolderName = ".readme.txt"
-$CustomizedTemplateDirectory = "CustomizedSchema_" + (-join ((65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_}))
+$CustomizedSchemaDirectoryPrefix = "CustomizedSchema_"
 
 $OrasDirectoryPath = "Oras"
 $OrasAppPath = "oras.exe"
-$OrasWinUrl = "https://github.com/deislabs/oras/releases/download/v0.12.0/oras_0.12.0_windows_amd64.tar.gz"
+$OrasWinUrl = "https://github.com/deislabs/oras/releases/download/v0.16.0/oras_0.16.0_windows_amd64.zip"
 $ErrorActionPreference = "Stop"
 
 $FhirVersion = $FhirVersion.ToUpper()
@@ -359,8 +359,26 @@ function Get-OrasExeApp {
     Write-Host "Finish download oras application from $orasUrl" -ForegroundColor Green 
 }
 
+function Get-ImageDigest {
+    param ([string]$orasAppPath, [string]$schemaImageReference)
+
+    $registryName = $schemaImageReference.Substring(0, $schemaImageReference.IndexOf('.azurecr.io'))
+    Connect-AzContainerRegistry -Name $registryName -ErrorAction stop | Out-Null
+
+    $orasParameters = @(
+        'manifest'
+        "fetch"
+        '--descriptor'
+        $schemaImageReference
+    )
+
+    $digest = & "./$orasAppPath" $orasParameters
+
+    return ($digest | ConvertFrom-Json).digest
+}
+
 function Get-CustomizedSchemaImage {
-    param ([string]$orasAppPath, [string]$schemaImageReference, [string]$customizedTemplateDirectory)
+    param ([string]$orasAppPath, [string]$schemaImageReference, [string]$customizedSchemaDirectory)
     
     $registryName = $schemaImageReference.Substring(0, $schemaImageReference.IndexOf('.azurecr.io'))
     Connect-AzContainerRegistry -Name $registryName -ErrorAction stop
@@ -368,9 +386,7 @@ function Get-CustomizedSchemaImage {
     # Leverage the oras to pull the image from Container Registry.
     $orasParameters = @(
         'pull'
-        $schemaImageReference
-        '-o'
-        'quwantest'
+        $SchemaImageReference
     )
     
     Execute_File -fileName "./$orasAppPath" -argumentList $orasParameters
@@ -379,8 +395,8 @@ function Get-CustomizedSchemaImage {
     Write-Host "Successfully pull the customized schema image: $compressPackages" -ForegroundColor Green
 
     # Unpack the image compressed package to customized template directory    
-    if (!(Test-Path $customizedTemplateDirectory)){
-        New-Item $customizedTemplateDirectory -ItemType Directory
+    if (!(Test-Path $customizedSchemaDirectory)){
+        New-Item $customizedSchemaDirectory -ItemType Directory
     }
 
     foreach ($compressPackage in $compressPackages){
@@ -388,7 +404,7 @@ function Get-CustomizedSchemaImage {
             '-xvf'
             $compressPackage
             '-C'
-            $customizedTemplateDirectory
+            $customizedSchemaDirectory
         )
 
         Execute_File -fileName 'tar' -argumentList $unpackParameters
@@ -434,9 +450,9 @@ function Get-CustomizedTableSql {
 
 function New-CustomizedTables
 {
-    param([string]$serviceEndpoint, [string]$databaseName, [string]$masterKey, [string]$customizedSchemaDirectory)
+    param([string]$serviceEndpoint, [string]$databaseName, [string]$masterKey, [string]$templateSchemaDirectory)
 
-    $schemaFiles = Get-ChildItem -Path $(Join-Path -Path $customizedSchemaDirectory -ChildPath *) -Include '*.schema.json' -Name
+    $schemaFiles = Get-ChildItem -Path $(Join-Path -Path $templateSchemaDirectory -ChildPath *) -Include '*.schema.json' -Name
     $sqlAccessToken = (Get-AzAccessToken -ResourceUrl https://database.windows.net).Token
 
     Write-Host "Start to create customized Tables on '$databaseName' of '$serviceEndpoint'" -ForegroundColor Green 
@@ -457,7 +473,7 @@ function New-CustomizedTables
             }
         }
 
-        $schemaFilePath = Join-Path -Path $customizedSchemaDirectory -ChildPath $schemaFile
+        $schemaFilePath = Join-Path -Path $templateSchemaDirectory -ChildPath $schemaFile
         $schemaObject = Get-Content $schemaFilePath | Out-String | ConvertFrom-Json -ErrorAction stop
         $resourceType = $schemaFile.Substring(0, $schemaFile.IndexOf('.schema.json'))
         $schemaType = Get-CustomizedSchemaType -resourceType $resourceType
@@ -602,16 +618,22 @@ if ($CustomizedSchemaImage) {
             -orasAppPath $OrasAppPath `
             -orasUrl $OrasWinUrl
 
+        $digest = Get-ImageDigest `
+            -orasAppPath $OrasAppPath `
+            -schemaImageReference $CustomizedSchemaImage
+
+        $customizedSchemaDirectory = $CustomizedSchemaDirectoryPrefix + $digest.Substring($digest.Length - 10)
+
         # b). Pull and parse customized schema from Container Registry.
         Get-CustomizedSchemaImage `
             -orasAppPath $OrasAppPath `
             -schemaImageReference $CustomizedSchemaImage `
-            -customizedTemplateDirectory $CustomizedTemplateDirectory
+            -customizedSchemaDirectory $customizedSchemaDirectory
 
-        $customizedSchemaDirectory = Join-Path -Path $CustomizedTemplateDirectory -ChildPath "Template" | Join-Path -ChildPath "Schema"
+        $templateSchemaDirectory = Join-Path -Path $customizedSchemaDirectory -ChildPath "Schema"
         
         # c). Create placeholder blobs for customized schema data.
-        $sqlFiles = Get-ChildItem $customizedSchemaDirectory -Filter "*.schema.json" -Name 
+        $sqlFiles = Get-ChildItem $templateSchemaDirectory -Filter "*.schema.json" -Name 
         $customizedSchemaTypes = $sqlFiles | ForEach-Object { Get-CustomizedSchemaType -resourceType $($_ -split "\.")[0] }
         New-PlaceHolderBlobs -storage $StorageName -container $Container -resultPath $ResultPath -schemaTypes $customizedSchemaTypes
 
@@ -620,7 +642,7 @@ if ($CustomizedSchemaImage) {
             -serviceEndpoint $synapseSqlServerEndpoint `
             -databaseName $Database `
             -masterKey $MasterKey `
-            -customizedSchemaDirectory $customizedSchemaDirectory
+            -templateSchemaDirectory $templateSchemaDirectory
     }
     catch{
         Write-Host "Create TABLEs for customized schema data failed, will try to drop database '$Database'." -ForegroundColor Red
