@@ -6,7 +6,7 @@ namespace ParquetOptions
 {
     const bool UseThreads = true;
 
-    const int BlockSize = 1 << 30;
+    const int BlockSize = 1 << 20;
     
     const arrow::json::UnexpectedFieldBehavior UnexpectedFieldBehavior = arrow::json::UnexpectedFieldBehavior::Ignore;
 
