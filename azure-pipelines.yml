@@ -26,12 +26,6 @@ variables:
 stages:
 - stage: Build
   jobs:
-  - job: BuildFhirToCdm
-    pool:
-      vmImage: 'windows-latest'
-    steps:
-    - template: FhirToCdm/build.yml
-
   - job: BuildFhirToDataLake
     pool:
       vmImage: 'ubuntu-22.04'
@@ -39,7 +33,7 @@ stages:
     - template: FhirToDataLake/azurepipelines/ci.yml
 
 - stage: OverallTest
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  condition: succeeded()
   jobs:
   - job: PrepareTestEnvironment
     pool:
@@ -71,24 +65,3 @@ stages:
       vmImage: 'ubuntu-22.04'
     steps:
     - template: FhirToDataLake/azurepipelines/OverallTest/clean-environment.yml
-
-- stage: Release
-  condition: succeeded()
-  pool:
-    vmImage: 'windows-latest'
-  jobs:
-  - job: PackNugetPackages
-    steps:
-    - template: FhirToDataLake/azurepipelines/pack-nugets.yml
-
-  - job: PublishFhirToCdm
-    dependsOn: PackNugetPackages
-    condition: succeeded()
-    steps:
-    - template: FhirToCdm/publish.yml
-
-  - job: PublishArtifactsToGitHub
-    dependsOn: PublishFhirToCdm
-    condition: succeeded()
-    steps:
-    - template: publish.yml
